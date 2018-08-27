@@ -1,0 +1,254 @@
+Goal: 블록 유형별 메모리 접근량 / 연산량 비교 
+
+Steps:
+train_val.prototxt               ← NOW
+solver.prototxt
+=> 정상 작동 test 
+deploy.prototxt
+streamline 으로 capture, analyze
+
+
+
+
+7월 말에는
+Odroid 에 caffe 설치하였음
+
+8월 1일 (수)
+178.78 서버 내 계정에 caffe 설치하였음
+
+8월 2일 (목)
+Q. 
+서버에선 GPU 쓰고 Odroid에서는 CPU써도 되는지?
+Deploy는 train_val과 다른 solver 만들어줘야 함?
+왜 Test에도 batch size 있는지?
+
+나중에 해결할 것
+Dataset 변환 lmdb로 하는 법
+
+지금 하는 것
+MNIST Example 돌리면서 공부
+train_val 과 solver 부분씩 베껴 봄
+
+8월 4일 (토)
+지금 할 일 
+Odroid에서 Example 돌리면서 DS-5 사용해보기\
+
+한 일
+서버에서 Example 돌리기
+
+
+8월 13일 (월)
+연구 주제 다시 정리
+= 다양한 구조의 필터를 단순한 네트워크 형태로 만들어
+메모리 접근횟수, 캐시미스, 연산량과 실제 실행 시간을 측정해 비교한다.
+(++ 이론상 Complexity를 계산해 비교한다 / 왜 이런 횟수가 나타나는지 검증한다)
+
+* ShuffleNet에서는 Theoretically 4배, Actually 2.6배  Speedup이 이루어졌음
+차이의 이유는 Memory access, other overheads로 제시
+Theoretical Complexity 계산은 연산량만으로 이루어진 것?
+
+오늘 한 일
+서버에서 Training 한 Example을 Odroid에서 test 함.
+gator odroid에 설치 마무리
+
+할 일 
+Odroid에서 Example 돌리면서 DS-5 사용해보기
+
+하고있는 일
+DS에서 Memory Access가 활성이 안됨 고치기
+
+@ 서버와 Odroid간 파일 전송 어떻게?
+: 서버에서는 Odroid가 안보임. Odroid에서 scp를 쓴다.
+
+지금 cpu only로 caffe를 해놨는데
+GPU도 쓰는 쪽이 나을거라고 하심.
+-> MGD daemon(Mali GPU Debugger) 필요
+
+* CPU Counter가 꺼진 채로 리눅스 빌드가 되어서
+Streamline에 빈칸으로 뜨는 항목이 많았던 것.
+
+
+8월 14일 (화)
+어제 하윤오빠가 시킨대로 빌드하고  sudo reboot해놓고 갔더니
+odroid 원격 접속이 안됨. odroid가 팬만 계속 돌린다.
+커널이 4.2.0 버전이었기 때문에 device tree 문제 생김.
+밀고 재설치한다.
+microSD에 odroid 이미지 굽기
+리눅스 커널 빌드
+서버에서 make odroidxu4_defconfig 치니까 arch/x86에서 없는걸 찾아서
+그냥 odroid에서 다 빌드하는게 낫겠음.
+“PMU” 뭔지 모르는데 알아봐야 할듯.
+이런거 안되는 버전 있으면 되는 옛날 버전 찾아서 쓰는게 낫다고.
+이번에는 단순히 걍 빌드 해보고 안되면 찾아놓은 옵션 추가해서 다시 빌드해볼 것
+gator.ko 만들기
+Cross compiler  - tool chain 이란것을 받아야 되는 듯.
+기본으로 gcc-4.7-arm-linux-gnueabi가 설치되어 있었다. 이걸 이용? 어떻게?
+
+http://xenostudy.tistory.com/485
+여기서 본 대로 크로스컴파일 할 Makefile에 ARCH와 CROSS_COMPILE 추가
+PATH 추가는 기본적으로 되어있는거 같으니까 따로 안하고 간다
+
+make -C /home/odroid/linux/ M=`pwd` ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- modules
+` != ‘
+gator daemon 만들기
+
+8월 15일 (수)
+gatord 만들었고 streamline에서 빈칸이던게 정상적으로 채워지는거 확인.
+이제 다시 caffe install 해야 함.
+opencl-caffe?
+
+8월 16일 (목)
+caffe와 opencl-caffe를 둘다 설치해보기로 한다.
+opencv에서 막히고있음
+
+
+[ 37%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/lpsolver.cpp.o
+virtual memory exhausted: Cannot allocate memory
+modules/core/CMakeFiles/opencv_core.dir/build.make:209: recipe for target 'modules/core/CMakeFiles/opencv_core.dir/src/lpsolver.cpp.o' failed
+make[2]: *** [modules/core/CMakeFiles/opencv_core.dir/src/lpsolver.cpp.o] Error 1
+CMakeFiles/Makefile2:2255: recipe for target 'modules/core/CMakeFiles/opencv_core.dir/all' failed
+make[1]: *** [modules/core/CMakeFiles/opencv_core.dir/all] Error 2
+make[1]: *** Waiting for unfinished jobs....
+virtual memory exhausted: Cannot allocate memory
+[ 37%] Building CXX object modules/sfm/src/libmv/libmv/multiview/CMakeFiles/multiview.dir/robust_estimation.cc.o
+modules/sfm/src/libmv/libmv/multiview/CMakeFiles/multiview.dir/build.make:206: recipe for target 'modules/sfm/src/libmv/libmv/multiview/CMakeFiles/multiview.dir/panography_kernel.cc.o' failed
+make[2]: *** [modules/sfm/src/libmv/libmv/multiview/CMakeFiles/multiview.dir/panography_kernel.cc.o] Error 1
+make[2]: *** Waiting for unfinished jobs....
+c++: internal compiler error: Killed (program cc1plus)
+Please submit a full bug report,
+with preprocessed source if appropriate.
+See <file:///usr/share/doc/gcc-5/README.Bugs> for instructions.
+modules/sfm/src/libmv/libmv/multiview/CMakeFiles/multiview.dir/build.make:86: recipe for target 'modules/sfm/src/libmv/libmv/multiview/CMakeFiles/multiview.dir/euclidean_resection.cc.o' failed
+make[2]: *** [modules/sfm/src/libmv/libmv/multiview/CMakeFiles/multiview.dir/euclidean_resection.cc.o] Error 4
+
+
+8월 17일 (금)
+opencv 3.4.0 깐다고 뻘짓했는데…
+odroid에 원래 2버전 깔려 있다ㅜ
+https://community.arm.com/graphics/f/discussions/8600/can-arm-mali-gpu-run-tensorflow-or-caffe-deep-learning-model
+“CNN on Mali is a joke (my experience with Mali T628)”
+Mali GPU로 딥러닝 돌리려면 ARM Library로 돌려야 하고 하윤오빠랑 광배가 하는 일. 
+그거는 일단 caffe CPU only로 해본 후에 하라고 함.
+
+<ODROID-XU4에서 caffe 까는 법>
+http://iamyoonkim.tistory.com/6
+여기서 CUDA와 opencv를 빼고 설치를 한다.
+Makefile.config에서  
+- CPU_ONLY를 켠다.
+- INCLUDE_DIRS := (…)  /usr/include/hdf5/serial/ 추가
+- LIBRARY_DIRS := (...) /usr/lib/arm-linux-gnueabihf/hdf5/serial/ 추가
+apt-get install liblmdb-dev :: leveldb 적혀있어서 했는데 lmdb도 해줘야되네
+make clean부터 따라한다. 중간에 뻑나면 clean부터 다시한다.
+caffe 설치 완료
+
+
+8월 18일 (토)
+할 일 
+Simple models 
+[ design - implement - train - test - inference ]
+Streamline에서 어떤 수치를 어떻게 읽을것인지?
+
+놀 시기 아닌데 너무 놀았다. 
+
+8월 20일 (월)
+내일 있을 코딩테스트 대비 C언어 공부
+
+8월 21일 (화)
+코딩테스트 봤다. 기력이 빠지긴 하는데 ShuffleNet caffe 좀 보고 가야지
+channel shuffle 간단 구현 방법: reshape - transpose - flatten 이라고 좀 쓸데없는 지식
+
+>  Shuffle Layer <
+layer {
+  name: "shuffle1"
+  type: "ShuffleChannel"
+  bottom: "concat1"
+  top: "shuffle1"
+  shuffle_channel_param {
+    group: 2
+  }
+}
+//  shuffle_channel_param {    group: 2  인데  코드에서는 3 slice.로나누나
+
+
+8월 22일 (수)
+MKL2017 : Intel Caffe Engine
+
+
+8월 23일 (목)
+Dataset은 MNIST 혹은 CIFAR-10 으로 한다.
+MNIST는 caffe example에 있다.
+
+transform_param { scale : 0.3xxxx } 어떻게 줘야할지???
+-> MNIST의 한 픽셀이 가지는 값 0~255를 0~1으로 매핑하는 scale factor임
+
+ ★ Input layer와 Block 사이에 채널 뻥튀기 하는 conv layer가 하나 있어야 된다.
+
+squeezenext가 hardware-aware design 이라는거 무슨뜻?
+: multi-processor embedded system 에서의 performance simulation 으로 architecture optimize
+optimization 과정에서 뭐를 어느 쪽으로 바꾼걸까?
+
+
+1.0-G-SqNxt-23 train_val.prototxt
+
+1: 64 (1) 7/7 - pool - 
+2: 32 (1) 1/1
+3: 16 (2) 1/1
+4: 8 (1)  1/1
+5: 16 (2) 1*3
+6: 16 (2) 3*1
+7: 32 (1) 1/1
+Eltwise1: SUM, from 2 & 7
+
+8: 16 (2) 1/1
+9: 8 (1) 1/1
+10: 16 (2) 3*1
+11: 16 (2) 1*3
+
+1.0-SqNxt-23 train_val.prototxt
+1: 64 (1) 7/7
+ - pool - 
+2: 32 (1) 1/1
+3: 16 (1) 1/1
+4: 8 (1) 1/1 
+5: 16 (1) 1*3
+6: 16 (1) 3*1
+7: 32 (1) 1/1
+Eltwise1: SUM, from 2 & 7
+여기서는 Group Conv가 아예 없음.
+
+Eltwise : Element wise. Res-connection의 이전 레이어 더하기 기능
+FC layer, Softmax(loss), Accuracy 일단 베껴놓긴 했는데 이해가 덜 됐다.
+Accuracy layer가 bottom을 FC로 함. Acc에서는 Softmax 가 필요없고 걍 max만 보면 되어서?
+
+
+8월 26일 (일)
+CIFAR-10 : 32*32, 50000 train + 10000 test , 
+MNIST : 28*28
+
+일단 MNIST 버전으로 만들어본다. 
+ transform_param{
+    scale: 0.00390625
+}
+
+block전 conv layer 파라미터 설정중
+num_output: 일단 32
+stride = 1
+bias_term = default
+kernel_size = 5
+pad = 2 or default ?  ⇒ MNIST 에서는 default도 괜찮을 것. CIFAR에서는 2로 주자.
+
+Local Response Normalization 설명 (layer type: ”LRN”)
+출처: http://nmhkahn.github.io/Casestudy-CNN
+
+한 점 (x, y)에 대해 어떤 필터를 주위 필터 값을 반영해서 정규화
+
+Generalization 에러를 줄이기 위해 정규화를 한다.
+aix,yax,yi 는 2D 이미지에서 (x, y) 위치에서 ii 번째 커널(필터)을 의미한다. k,n,α,βk,n,α,β 는 hyper-parameter로 이 논문에서는 k=2,n=5,α=10−4,β=0.75k=2,n=5,α=10−4,β=0.75 로 설정했다.
+이 정규화는 같은 spatial 위치에 있는 nn 만큼 adjust한 필터들의 square-sum을 이용하여 정규화 하는 것이다. 예를들어 n=5n=5 라면, (2, 3)번째 픽셀에 위치하는 5번째 필터는 그 위치의 3~7번째 필터에 해당하는 결과값을 이용하여 정규화 한다.
+참고로 지금은 성능상 큰 이점이 없어서 잘 사용하지는 않는다.
+
+
+Q. scale layer 무슨 일 하는거?
+
+
+대강 simple sqznxt 만들어 놨다. 빠진 parameter 있는지 체크할 것.
