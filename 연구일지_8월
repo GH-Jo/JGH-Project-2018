@@ -252,3 +252,239 @@ Q. scale layer 무슨 일 하는거?
 
 
 대강 simple sqznxt 만들어 놨다. 빠진 parameter 있는지 체크할 것.
+
+8월 27일 (월)
+Q. scale layer 무슨 일 하는가?
+https://stackoverflow.com/questions/37410996/scale-layer-in-caffe
+input blob이 하나인 경우, 다음 scale factor a와 constant b를 학습함.
+ r’ = ar + b 
+
+Q. lr_policy: “inv” or “poly” 
+example lenet의 solver를 따라서 “inv”로 해보기.
+ 
+sqznext simple ver. 에서  train_test, solver, train.sh까지 함.
+- Test accuracy 0.982인데 충분한가? - 데이터셋 같은 네트워크끼리만 맞춰주자
+
+
+이제 deploy를 만들어 보려고 하는데 필요할까?  -> SHIFTNet 참고하자
+- Arithmetic Intensity: ratio of FLOPs to memory accesses - 여기선 어떻게 쟀나
+       -> 실제로 측정하는 내용은 없었다. 
+	standard, depthwise conv 에서 ratio 계산만 했음.
+- deploy.prototxt 만드는건 쉬운데 사용할 때 python 파일을 만들어야 한다.
+만드는방법: https://github.com/BVLC/caffe/wiki/Using-a-Trained-Network:-Deploy
+http://shengshuyang.github.io/A-step-by-step-guide-to-Caffe.html 여기도 참고
+
+
+
+
+
+[Goal에 추가]:
+이론적 Arithmetic Intensity와 실제 Odroid에서의  Arith. Intensity 비교 -> 왜 차이가 날지
+-> 이론적 Intensity에서는 # of memory accesses 를 단순히 숫자(param, activation, grad)의 총 개수로 치는가? 한 parameter가 여러번 접근되는데 중도에 cache에서 추방되는 일은 없나?   -> Shift에서의 standard conv & depthwise ratio 식을 다시 보고 판단.
+
+( Memory reuse rate를 되도록 유지하면서 FLOPs를 줄이는 필터 유형 찾기 )
+
+Q. test를 batch size 1, iter 1로 해서 하면 inference와 연산이 같지 않은가?
+batch size 는 train_test.prototxt 에서 바로 수정 됨
+iter 는? http://caffe.berkeleyvision.org/tutorial/interfaces.html 에서 보면
+-iterations ## 인자를 줄 수 있다. 
+→ batch 1 iter 1 만들기 된다.
+
+※ caffe time : 위 링크에 들어가보면 있음. layer별 시간 재어준다.
+
+현상 파악을 위해 Shift, Xception, ShuffleNet 논문에서 언급한 부분을 보고 있다.
+Depthwise conv 연산만 이 문제를 일으킴?
+1x1 conv도 parameter는 Depthwise와 같은 횟수만큼 reuse 될텐데 (stride가 둘다 1이라면), activation의 reuse는 어떻게 다를까?
+
+
+
+***** 일단 다른 모듈 쓴 simple_train_test 만들기부터 집중하도록 한다.*****
+
+ShuffleNet - MNIST - train_test 만드는 중
+https://github.com/farmingyard/ShuffleNet 이용해서 할 일 
+layer.cpp, .hpp 파일을 받아서 caffe에 추가한다.
+여기서 정의한 shufflenet_1x_g3_deploy.prototxt 에서 블록을 가져온다.
+
+Q. ShuffleNet 옆에 2x는 무슨 의미?
+”ShuffleNet 1X”: baseline network
+”ShuffleNet sX” means scaling the number of filters in ShuffleNet 1X by s times thus overall complexity will be roughly s^2 times of ShuffleNet 1.
+
+ShuffleNet deploy 파일에 이름이 resx인 레이어가 등장하는데, ResNeXt인 듯함.
+일단 train_test 짓고, ResNeXt 나중에 살펴볼 것.
+
+
+
+Stage2의 첫번째 1x1 layer는 Gconv 안함.
+지금 참고하는 코드에서는 g=3으로 했고, Stage2의 첫번째 블록에선 Add가 아닌 Concat을 한다. Elt 기준으로 PPT 그림에 맞는 블록을 잘라내서, 내 네트워크에 붙일 것.
+
+
+
+Finding ShuffleNet Block in 
+
+resx1_concat
+resx1_concat_relu
+------------------------- 여기서부터 내 네트워크에 포함 
+resx2_conv1 : 1*1, g=3, #=60
+resx2_conv1_bn
+resx2_conv1_scale
+resx2_conv1_relu
+shuffle2 : g=3
+resx2_conv2 : 3*3, Depth, #=60, s=1
+resx2_conv2_bn
+resx2_conv2_scale
+resx2_conv3 : 1*1, g=3, #=240
+resx2_conv3_bn
+resx2_conv3_scale
+resx2_elewise <- resx1_concat, resx2_conv3
+resx2_elewise_relu
+----------------------------
+
+
+ 
+8월 28일 (화)
+어제 하던 ShuffleNet 만들기 이어하기
+Q: “왜 기존 모델 안돌리고 따로 축소판 만들어서 해”
+-> 같은 조건을 맞추고 비교하기 위해서
+   맞출 조건 예시: # of Weights - whole network? block 내에서만?
+   일단 Accuracy는 무시한다. CIFAR-10에 맞춘다.
+
+conv1 (Gconv) - conv2 (Depth) - conv3 (Gconv)
+Depth는 in과 out channel 수가 같다. g = # of channels 인 conv로도 볼 수 있다.
+
+>> ShuffleNet 현황 >> 
+Done
+train_test 작성
+test.sh, train.sh 수정하기
+solver 수정하기
+.cpp, .hpp layer 정보 파일 붙이고, caffe 다시 make
+    위치) .hpp : ~/caffe/include/caffe/layers$
+             .cpp, .cu : ~/caffe/src/caffe/layers
+ConvolutionDepthwise layer가 caffe에 없음. 등록하거나, 고친다.
+train, test 쉘 파일 실행 확인
+To do
+Weight 개수 맞추기
+
+Q. 맨 처음 conv layer 직후에는 relu가 필요없는가?
+ -> MNIST에서는 안 써도 상관 없는 듯 하다. 
+     lenet은 conv-pool을 두번씩 거치고 fc뒤에 relu 붙임.
+     그리고 이건 accuracy에 관한 문제이므로 지금 알아볼 필요 없음.
+
+Q. ShuffleNet, SqueezeNext Full Network 는 Odroid에서도 돌아갈 크기인가?
+
+Q. 내가 가져온게 ShuffleNet의 기본적인 모듈이 맞는건가?
+논문의 내가 선택한 unit 옆에 stride = 2인 unit이 있는데, 부가적인 것으로 보인다.
+
+
+
+>> ResNet 축소 모델 만들기 >> 
+bottle neck module이 적용된 block을 사용한다. 
+
+Done
+train_test 작성
+test.sh, train.sh 수정하기
+solver 수정하기
+train, test 쉘 파일 실행 확인
+To do 
+weight 개수 조절하기
+
+** ResNet-50-deploy.prototxt 구조
+conv1 : #=64, 7*7, s=2
+conv1_bn
+conv1_scale
+conv1_relu
+pool1
+------------------------------------------------
+a) res2a_branch1 conv : #=256, 1*1, s=1    <- pool1
+ - bn
+ - scale
+b) res2a_branch2a conv : #=64, 1*1, s=1    <- pool1
+ - bn
+ - scale
+ - relu
+    res2a_branch2b conv : #=64, 3*3, s=1
+ - bn
+ - scale
+ - relu
+    res2a_branch2c conv : #=256, 1*1, s=1
+ - bn
+ - scale
+
+res2a Eltwise <- res2a_branch1,  res2a_branch2c
+res2a relu
+----------------------------------------------- 처음 블록이라 변형이 있음.
+res2b_branch2a conv : #=64, 1*1, s=1
+ - bn
+ - scale
+ - relu
+res2b_branch2b conv : #=64, 3*3, s=1
+ - bn
+ - scale
+ - relu
+res2b_branch2c conv : #=256, 1*1, s=1
+ - bn
+ - scale
+
+res2b Eltwise <- res2a Eltwise, res2b_branch2c
+----------------------------------------------- 이 블록을 가져온다.
+
+
+Parameter 수 계산
+◆  Simple ResNet
+In Block
+#in_channels = 4a
+res2b_branch2a (1*1, #4a->a)      = (1*1) * 4a * a
+res2b_branch2b (3*3, #a->a)        = (3*3) * a * a
+res2b_branch2c (1*1, #a->4a)      =(1*1) * a * 4a
+Total = 4aa+9aa+4aa = 17aa
+Q. Batch Norm에도 learned parameter 있지 않나?
+ => Feature map의 각 점에 대해서 gamma, beta 학습하는 거라면 값이 유의미하게 클 것. 근데 이건 일단 시간 부족해서 랩세미나 후에 조사한다.
+Out Block
+Conv1 (5*5, #3->4a) = (5*5) * 3 * 4a = 300a
+fc (#in = ??? -> feature map 크기 알아야 함 -> dataset 지정해야 함
+     -> 일단 다 CIFAR-10 버전으로 바꾸자
+     #out = 10)
+
+◆ Simple ShuffleNet
+In Block
+resx2_conv1 (1*1, g=3, #4a->a)  = (1*1) * (4a/3) * a
+resx2_conv2 (3*3, g=a, #a->a)  = (3*3) * a
+resx2_conv3 (1*1, g=3, #a->4a) = (1*1) * (a/3) * 4a
+Total = 9a + 8/3aa = 11.3 aa
+Out Block
+Conv1 (5*5, #3->4a) = (5*5) * 3 * 4a = 300a
+fc (#in= ???, #out=10) 
+
+◆ Simple SqueezeNext
+In Block
+Conv2 (1*1, #4a->2a) = 8aa
+Conv3 (1*1, #2a->a) = 2aa
+Conv4 (1*3, #a->2a) = 6aa
+Conv5 (3*1, #2a->2a) = 6aa
+Conv6 (1*1, #->4a) = 4aa
+Total = 26 aa
+Out Block
+Conv1 (5*5, #3->4a) = (5*5) * 3 * 4a = 300a
+fc (#in= ???, #out=10) 
+
+
+8월 29일 (수)
+Deploy 하기
+
+1. deploy.prototxt 만들기 (간단함) 
+   https://github.com/BVLC/caffe/wiki/Using-a-Trained-Network:-Deploy
+2. caffe/python/classify.py 에서 인자를 줘서 inference 할 수 있는 듯.
+3. classify.py 활용하려면 mean.npy 파일이 필요.  mean.binaryproto로부터 변환하기
+   https://github.com/BVLC/caffe/issues/290
+   여기 나온 코드로 convert_protomean.py 파일 만들어서 변환했다.
+4. .caffemodel.h5 파일 넣어도 classify가 정상 작동 하는지 확인하자.
+   => .h5가 문제가 아니라 “cannot identify image file” 문제가 난다
+   참고) https://github.com/python-pillow/Pillow/issues/1006
+    문제원인: HTML주소를 이미지 주소로 착각하고 wget을 써서…. 헐
+     $ file sampleimg8b.png 커맨드를 써서 파일 타입을 알아내 주심.
+     그리고 카페 설치 시 http://www.whydsp.org/316 
+     여기서 make distribute 도 해야 되는거 였나봄.
+5. Output file 어떻게 해석? <<<<<<<<< NOW HERE
+
+
+
+Q. MNIST에서 CIFAR-10으로 옮겨오면서 solver에 snapshot_format: HDF5 추가 ← 뭔 의미? 
