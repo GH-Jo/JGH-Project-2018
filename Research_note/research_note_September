@@ -1,0 +1,31 @@
+9월 3일 (월)
+[ To Do ]
+1. streamline 활용
+2. 모델에 다른 제약 조건 적용하여 변경
+- 적용할 제약 조건 수집
+3. 모델에서 필터 구조/ 블록 변경
+- 적용할 필터 구조 수집
+
+@ deploy 해결하기.
+- output file 처리는 나중에 하기
+
+[ Done ]
+CIFAR-10 model에서 loss가 올라가고 accuracy는 1으로 나오는 문제 해결하기 
+- (세 모델 모두 해당)
+- 이유: 중간 activation이 NaN으로 갔을거라 예상되어, 정상적으로 연산 과정이 이루어졌는지 알 수 없음
+- 적당히 accuray 0.3 정도로  solver 조정해서 weight 만들었음
+deploy
+- ShuffleNet, SqzNext deploy.prototxt, .sh 만들기
+- train_test 파일이 odroid에 없음. 받아오기 
+- solver CPU 모드로 변경 (이건 train에만 상관있나?)
+- shufflenet 관련 (.c .h .cu)파일을 caffe에 포함시켜 다시 빌드  
+- 새로 트레이닝한 weight 옮기기
+- 정상 작동 확인
+
+9월 4일 (화)
+** gatord : ~/gator_ex 에 있음. sudo ./gatord로 실행
+[ Doing NOW ]
+@ streamline 활용
+- 레이어별로 기록 나눠서 보기: streamline annotate
+   - classify.py file에 import 해서 사용가능할지
+
