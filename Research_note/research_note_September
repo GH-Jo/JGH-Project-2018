@@ -29,3 +29,98 @@ deploy
 - 레이어별로 기록 나눠서 보기: streamline annotate
    - classify.py file에 import 해서 사용가능할지
 
+9월 5일 (수)
+@ streamline 활용
+streamline annotate에 gator.py가 필요하다고 함
+-> gator를 찾았다! Windows에 streamline 폴더 아래아래 있었음
+    C:\Program Files\DS-5 v5.29.0\sw\streamline\gator\python
+gator.py 사용 방법 배우기
+
+
+9월 8일 (토)
+@ streamline
+C or Java file에 annotate하는 것과 gator.py로 하는 일이 다른 것 같다.
+annotate: add overlays or automatic bookmarks to the Timeline view
+
+⇒  classify.py 를 쓰지 않고, 
+caffe time의 소스파일 ~/caffe/tools/caffe.cpp에 annotate를 추가하기로 결론.
+
+~/caffe/caffe.cpp로 옮겨서 빌드
+caffe time <-> test
+test에서 forward가 이모양이라서>>>>
+290: const vector<Blob<float>*>& result = caffe_net.Forward(&iter_loss);
+고치기 어렵겠다.
+
+caffe.cpp에서 time부분 고치기
+- forward 함수 주변
+- layer attributes (name) 받아올 수 있다
+어떤 for문 안에 start end걸어야 되는지: line 382의 Forward() 앞뒤로
+
+
+
+9월 9일 (일)
+** 미해결: caffe time 코드에서 불필요한부분 지우기
+odroid@odroid:~/caffe$ ./build.sh
+/usr/bin/ld: caffe: hidden symbol `pthread_atfork' in /usr/lib/arm-linux-gnueabihf/libpthread_nonshared.a(pthread_atfork.oS) is referenced by DSO
+-DNO_HANDLE_FORK 마지막에 추가해봤지만 해결되지 않음
+
+[해결함] 해결방법:
+/usr/lib/arm-linux-gnueabihf에서 sudo ar -x libpthread.a pthread_atfork.o
+g++ target에  /usr/lib/arm-linux-gnueabihf/pthread_atfork.o 추가
+
+[Streamline 돌려서 결과 보는 중]
+Weight 수 통제
+1st block measurement
+Cortex-A15 is used
+ResNet (weight:trained, iterations: 5)
+ShuffleNet (weight:trained, iterations: 3)
+SqzNext (weight:trained, iterations: 3)
+
+shuffle
+  mem: 187,123,956
+  inst: 430,257,654
+  inst/mem = 2.3
+
+sqznext
+  mem 250,618,510
+  inst 609,823,599
+  inst/mem = 2.4
+
+res(2nd)
+  mem 164,842,276
+  inst 424,730,691
+  inst/mem = 2.58
+
+==> Arithmetic intensity는 res > sqznext > shuffle 순서로 높음
+
+문제점
+Computation을 flops로 계산해야되는건데.. inst 측정된걸 썼다 계산을 하자.
+왜 memory access가 실행할때마다 다를까 (res, res2 비교)
+
+*** Cache Miss Rate? 
+*** Block 내에서 layer별로 Intensity 비교도 할것
+
+9월 11일 (화)
+일단 이걸 오늘 내로 하자.
+FLOPs 계산
+같은 네트워크를 한 번 실행했을 때 iteration별  mem access 비교
+여러번 실행했을 때 mem access 다른것 -> 평균 내면 된다.
+* Batch Norm에도 FLOPs가 들어감: weight 마다 1번 나눗셈 1번 곱셈
+-------------------------------------------------------------------------------------------------------------------------
+새로 정해진 방향
+< ResNet - SqueezeNext - MobileNet - ResNeXt 비교 분석>
+ 0. **** ShuffleNet V2에서 비슷한 이야기를 하고 있으니 먼저 읽는다. 
+ 1. # of Channels 고정하고 블록 하나가 포함되는 단순한 네트워크 구성하여 실행시간 측정
+    // 비교를 위해 Residual Connection은 제거하고 네트워크 구성
+ 2. FLOPs, time 비교: FLOPs 감소에 따른 speedup이 부족할 것임 -> 문제
+ 3. 문제의 원인 찾기  
+	 - memory access 측정하여 Comp Intensity 계산
+	 - cache miss 등 더 고려할 수 있는 것 조사
++) ( 최적의 결과를 낸 필터로 네트워크 구성해서 기존 네트워크와 비교 )
+
+
+### 별도로 비교하고 싶은 것 : 
+- 아무 네트워크나 부팅 직후 캡처 / 다른 프로그램 사용 후 캡처 비교
+- 구조 같은 네트워크 규모별 Intensity
+
+
