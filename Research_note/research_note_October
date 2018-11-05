@@ -1,0 +1,185 @@
+10월 19일 (금)
+Arm Compute Library로 MobileNet 등 Full Network inference time 등 측정 실험 수행할 것.
+
+0.  컴파일 & 실행 방법 (g++, LD_LIBRARY_PATH로 찾을 것)
+https://arm-software.github.io/ComputeLibrary/latest/index.xhtml#S3_how_to_build
+
+1.  정확도가 필요 없을 때 get_weights_accessor (weight file 읽어오는것) 말고 
+  dummy 함수 쓸 것
+https://github.com/merrymercy/tvm-mali/blob/master/acl_test.cc#L17
+ 
+ 
+
+10월 26일 (금)
+지난번 결론
+~/Desktop/18.08/examples/graph_mobilenet.cpp 파일 수정하기.
+MobileNet -> GoogleNet -> ResNet50 순서로 실험 진행하자
+
+파악할 것
+graph_mobilenet.cpp 에서 Width multiplier와 Resolution multiplier는 어디 있는지?
+Width multiplier의 기능은?
+In & Out 채널 수 줄이는 것이다.
+0~1 사이의 소수로 표시한다
+직접 채널 수 다 줄이라고? 아니면 하나만 바꾸면 되는 alpha가 정의되어 있나?
+Resolution multiplier의 기능은?
+이미지의 크기 (W, H)를 줄임
+input image 크기만 변경하면 나머지 internal representation은 자동으로 적용
+별도로 줄이는 비율을 전달해서 자동으로 축소해주는 게 아니라,
+input image 크기(resolution)를 알아서 축소해야 함.
+W, H의 크기를 따서 224, 192, 160, 128으로 표기
+
+
+10월 27일 (토)
+get_weights_accessor가 한꺼번에 전체 레이어에 weight 넣어주는게 아니라 여기저기 많이 써있다.
+.set_name(total_path + "depthwise/depthwise") 어쩌란 건지.. 일단 걍 놔둬봄
+
+중간에 quantization이 껴있는데 이게 원래의 mobilenet과 다르게 적용되는 거면 무시하면 안되지않나?
+
+애초에 뭐하는 코드인지?
+main함수는 
+return arm_compute::utils::run_example<GraphMobilenetExample>(argc, argv);
+ : 위에서 정의한 클래스를 가지고 run_example에 argc, argv와 함께 넣어 돌린다.
+class GraphMobilenetExample는?
+ : get_weights_accesor로 weight 가져와서 뭘 하는가본데...… 
+
+< graph_mobilenet.cpp > 
+class GraphMobilenetExample
+    public:
+        bool do_setup
+        void do_run
+    private:
+        void create_graph_float
+        void create_graph_qasym
+
+main → run_example → do_setup
+                                        do_run
+                                        do_teardown
+
+do_setup : parameter 출력, graph creation
+
+do_run → graph.run → execute_graph → while(true) { call_all_…  }
+(Stream graph←  class Stream final : public IStream)
+
+
+
+10월 29일 (월)
+잘 돌아가는 컴파일: 링크 될 파일 옵션을 뒤에 두어야 함. 뒤에서 앞으로 불러온다고.
+ g++ -o ex examples/graph_mobilenet.cpp build/utils/* -I./ -I./include -Lbuild/ -larm_compute -larm_compute_core -larm_compute_graph -O2 -std=c++11 
+
+실행 : LD_LIBRARY_PATH=build ./mobilenet
+NEON 디폴트인데 CL로 변경
+data(parameter) path는 “”로 줘야 됨
+
+
+Dummy()
+있는 라이브러리에서 불러쓰는 것이 아니라, 깃허브 tvm-mali 에서 함수 따옴
+image input path는 입력 안해도 Dummy로 들어감.
+get_weight_accessor() 앞뒤는 그대로 놔두고 이부분만 Dummy()
+
+Annotation을 달 차례.
+
+10월 30일 (화)
+Annotation
+layer별로 annotation 할 필요가 있나? 
+근데 graph.run() 전체를 재려니까 test 과정 이상으로 다른게 포함될 듯해서 run() 함수 어디 정의되어있는지 파보는 중
+선언만 있고 정의들은 어디갔어? : 선언은 arm_compute/ 정의는 src/에 있다
+#include <streamline_annotate> 만 써서는 컴파일이 안됨
+>> -lstreamline_annotate 옵션을 추가해서 컴파일
+CLScheduler::get().sync();
+GPU는 async로 돌아가기 때문에 해당 라인의 실행이 다 안끝나도 다음으로 넘어갈 수 있음. sync를 만나면 앞 코드들의 실행이 다끝날때까지 기다린다.
+
+
+10월 31일 (수)
+Applying Width Multiplier and Resolution Multiplier
+Width Multiplier 존재
+= depth_scale
+void create_graph_float 함수에서 적용
+Resolution
+line 80-84 에서 spatial_size
+spatial_size → tensor_shape → input_descriptor
+어떻게 조합해 만들까
+224, 192, 160, 128
+1.0, 0.75, 0.5, 0.25 << 일단 여기만 컴파일 해놓음
+
+GoogleNet을 보자
+Width / Resolution Multiplier 적용
+RM: Line 81의 TensorShape에 들어가는 인자를 변경할 수 있다.
+WM: do_setup 함수에서 depth_scale 정의하고 채널수 나오는 곳마다 곱하기 적용함.
+WM만 적용한 variation 만들어 놓음
+
+ResNet50 고치기
+RM: Line 82 TensorShape
+WM: depth_scale 정의하고 적용함.
+WM만 적용한 variation 만들어 놓음
+
+
+clock_gettime 쓰면 안되나?
+추가해서 Mobilenet 1 / .75 / .5 / .25 쟀다.
+
+FLOPs 계산
+Mobilenet 논문에는 224-WM별 Mult-Adds가 계산되어있음.
+GoogleNet 논문에는 feature map 크기, #param, ops 나와있음
+ops가 뭘 의미하는지는 찾는 중 … <<< 여기부터 다시
+WM 적용은 따로 계산
+ResNet 논문에는 #param, FLOPs 나와있다 (Multiply-Add, p.5)
+WM 적용은 따로 계산해야 한다
+
+
+일단 MEM은 제쳐두고 FLOPs-Time 그래프 그리는 걸 우선 한다
+
+
+11월 1일 (목)
+
+FLOPs 계산
+Cache Miss 측정 
+Mali GPU 구조 먼저 알기: 광배한테 묻기
+서버 Caffe에서 training해서  Accuracy 측정
+
+서버에서 트레이닝 돌리면서 다른 일을 할 수 있을 거라 생각해서 3번을 제일 먼저 하는 중
+잘 안되네..
+GoogLeNet, CIFAR10으로 고쳐서
+cudnn.hpp:86] Check failed: status == CUDNN_STATUS_SUCCESS (3 vs. 0)  CUDNN_STATUS_BAD_PARAM
+Convolution layer마다 engine:CAFFE를 더해주라고 하는 사람이 있음
+CIFAR-10의 사이즈가 작은데 구글넷은 압축해서  문제!!
+  - loss1/ave_pool에서 Output을 만드는 과정에서 문제가 남
+  - 이 단계까지 오면 Feature map size = 2x2
+  - 여기서 커널 사이즈는 5x5, stride=2  
+
+앞의 문제 때문에 ImageNet으로 해야 함
+****  기한 내에 하기 어려우므로 환경만 세팅해놓고 뒷전으로 미루기
+10번 서버 /home/imagenet에서 tar 파일 두 개 복사해오기
+caffe용 변환 스크립트 caffe 디렉토리 안에서 찾고 
+
+--------- 3번은 기한 내에 어렵고 중요도가 떨어지므로 미뤄둔다
+--------- Accuracy는 모델 논문에서 인용하든가 해야 할 것
+
+1번 FLOPs 계산을 하자
+MobileNet 계산 완료
+
+
+11월 2일 (금)
+1번 FLOPs 계산을 하자 >> 다했다. 모델 논문과 유사한면 차이점 다 있음
+MobileNet 계산 완료
+ResNet 계산 했는데 논문이랑 좀 다르네
+GoogLeNet 난항을 겪는 중
+
+2번 Cache 구조 보고 측정을 하자
+
+
+11월 3일(토)
+Cache hit ratio 측정
+Cache miss로 가는게 더 보기 좋을 수도 있음
+일단 3개 다 한 번씩 재 봤는데  Width에 따라 변하는 추세가 별로 안좋아보임..
+sync()를 종료 후에만 뒀는데 시작전에도 넣어서 다시 재본다
+per FLOPs로 memory 접근, L2 접근을 구해봄
+MobileNet-ResNet 비교. MobileNet의 L2가 36%많고, mem은 조금 적음
+→ L2 접근 비용이 그렇게 구린가?
+더 할 것 
+VGG-16에 대해서도 WM 적용, FLOPs계산, Cache측정 (baseline 성격으로)
+기존 결과에서 L2/FLOPs, MEM/FLOPs 계산 안한 곳 보강하기
+L1접근/FLOPs도 계산
+snoop도 재본다 : M, G, R에서도 다시 재야 함 
+VGG-16
+논문상의 D버전으로 짜인 코드
+Conv3x3과 FC만 쓴다.
+FC 레이어에도 depth_scale 적용.
